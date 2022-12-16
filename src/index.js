@@ -14,13 +14,13 @@ import { datasetBrowser,
 	textInput,
 	trainingProgress,
 } from '@marcellejs/core';
-import { dataQueryTable } from './components';
+import { dataQueryTable, datasetHistogram} from './components';
 
 const x = text('Welcome to Marcelle!');
 const input = sketchPad();
 const featureExtractor = mobileNet();
 const store = dataStore('localStorage');
-const trainingSet = dataset('TrainingSet', store);
+const trainingSet = dataset('training-set-dashboard', store);
 const classifier = mlpClassifier({ layers: [64, 32], epochs: 20 }).sync(store, 'sketch-classifier');
 
 // Additional widgets and visualizations
@@ -29,6 +29,8 @@ classLabel.title = 'Label';
 const captureButton = button('Capture this drawing');
 const trainButton = button('Train the classifier');
 const predictButton = button('Predict label');
+
+const dataTable = datasetHistogram(trainingSet);
 
 const trainingSetBrowser = dataQueryTable(trainingSet);
 const progress = trainingProgress(classifier);
@@ -63,8 +65,7 @@ const myDashboard = dashboard({ title: 'Sketch App (v1)', author: 'Suzanne' });
 
 myDashboard
   .page('Main')
-  .sidebar(input, featureExtractor)
-  .use([classLabel, captureButton], trainingSetBrowser, trainButton, progress, [
+  .use( trainingSetBrowser, trainButton, progress, [
     predictButton,
     predictionViz,
   ]);

@@ -8,6 +8,7 @@
   import { scale } from 'svelte/transition';
   import { ViewContainer } from '@marcellejs/design-system';
   import { Button, PopMenu } from '@marcellejs/design-system';
+  import { identity } from 'svelte/internal';
   export let title: string;
   export let batchSize: number;
   export let count: Stream<number>;
@@ -51,7 +52,6 @@
       return;
     }
     const labels = await dataset.distinct('y');
-    console.log(labels);
     classes = labels.reduce(
       (x, lab) => ({
         ...x,
@@ -66,6 +66,7 @@
     for (const label of labels) {
       const { total } = await dataset.find({ query: { $limit: 0, y: label } });
       classes[label].total = total;
+      console.log(total);
       if (batchSize > 0) {
         await loadMore(label);
       } else {
@@ -92,7 +93,19 @@
     }
     await p;
     selected.set([]);
+    setIdThumbnail();
   }
+
+  async function remove(id: ObjectId) {
+    let p: Promise<unknown> = Promise.resolve();
+    
+    p = p.then(() => dataset.remove(id));
+
+    await p;
+    selected.set(selected.get().filter((x) => x !== id));
+    setIdThumbnail();
+  };
+
   async function relabelSelectedInstances(newLabel: string) {
     let p: Promise<unknown> = Promise.resolve();
     for (const id of selected.get()) {
@@ -101,15 +114,20 @@
       num_relabeled += 1;
     }
     await p;
+    
     selected.set([]);
+    setIdThumbnail();
   }
   async function relabelOneInstance(id: string, newLabel: string) {
     let p: Promise<unknown> = Promise.resolve();
     p = p.then(() => dataset.patch(id, { y: newLabel }));
     num_relabeled += 1;
-    console.log(dataset);
     await p;
+
+    selected.set(selected.get().filter((x) => x !== id));
+    setIdThumbnail();
   }
+
   let metaPressed = false;
   let shiftPressed = false;
   function handleKeydown(event: KeyboardEvent) {
@@ -131,7 +149,9 @@
   let initialId: ObjectId = null;
   let currentSelectedInd = 0;
   let currentSelectedId = "";
-  let currentSelected = selected.get();
+  let currentSelectedImg = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
+  let currentSelectedLabel = "";
+  let newLabel = "";
   function selectInstance(id?: ObjectId, hover?: Boolean) {
     if (hover) {
       hovered.set(id ? [id] : []);
@@ -172,21 +192,42 @@
           else {
             selected.set(selected.get().concat([id]));
           }
+          setIdThumbnail();
         }
         initialId = id;
       }
     }
   }
-  let shown = false;
-  let dispatch = createEventDispatcher();
-
-  export function show() {
-      shown = !shown;
-      dispatch('show', shown);
-  }
 
   function clearSelection() {
     selected.set([]);
+    setIdThumbnail();
+  }
+
+  function setIdThumbnail() {
+    if (selected.get().length > 0) {
+      currentSelectedId = selected.get()[currentSelectedInd];
+      for (const [label, { instances }] of Object.entries(classes)) {
+        for (const {thumbnail, id} of instances) {
+          if (id == currentSelectedId)  {
+            currentSelectedImg = thumbnail;
+            currentSelectedLabel = label;
+          }
+        }
+      }
+    }
+    else {
+      currentSelectedImg = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
+      currentSelectedLabel = "";
+    }
+  }
+
+  function selectAllInstances() {
+    for (const [label, { instances }] of Object.entries(classes)) {
+      for (const {id} of instances) {
+        selectInstance(id, false);
+      }
+    }
   }
 
   const prevCard = () => {
@@ -195,7 +236,7 @@
 		} else {
 			currentSelectedInd -= 1;
     }
-    currentSelectedId = selected.get()[currentSelectedInd];
+    setIdThumbnail();
 	}
 	
 	const nextCard = () => {
@@ -204,7 +245,7 @@
 		} else {
 			currentSelectedInd += 1;
     }	
-    currentSelectedId = selected.get()[currentSelectedInd];
+    setIdThumbnail();
 	}
 
   function onClassAction(label: string, code: string) {
@@ -212,7 +253,7 @@
     switch (code) {
       case 'edit':
         // eslint-disable-next-line no-alert
-        result = window.prompt('Enter the new label', label);
+        result = window.prompt('Enter the new class name', label);
         if (result) {
           dataset.patch(null, { y: result }, { query: { y: label } });
         }
@@ -238,7 +279,6 @@
   }
   onMount(() => {
     updateClassesFromDataset();
-    console.log(classes);
     dataset.$changes.subscribe(async (changes) => {
       for (const { level, type, data } of changes) {
         if (level === 'dataset') {
@@ -255,7 +295,6 @@
                 instances: [],
               };
             }
-            console.log(classes[data.y])
             classes[data.y].total += 1;
             classes[data.y].loaded += 1;
             classes[data.y].instances = [
@@ -271,8 +310,6 @@
               ({ id }) => id !== data.id,
             );
             if (classes[originalLabel].total === 0) {
-              console.log(classes);
-              console.log("deleted");
               delete classes[originalLabel];
               classes = classes;
             }
@@ -310,11 +347,37 @@
   {#if classes && !dataStoreError}
     {#if $count > 0}
       <p class="ml-3 mt-2">This dataset contains {$count} instance{$count > 1 ? 's' : ''}. {num_relabeled}
-        point {num_relabeled > 1 ? 's' : ''} {num_relabeled > 1 ? 'has' : 'have'} been relabeled out of {num_total} total.</p>
+        point{num_relabeled > 1 || num_relabeled == 0 ? 's' : ''} {num_relabeled > 1 || num_relabeled == 0 ? 'have' : 'has'} been relabeled out of {$count} total.</p>
     {:else}
       <p class="ml-3 mt-2">This dataset is empty.</p>
     {/if}
-    <button on:click={clearSelection}>Clear all selections</button>
+    <div class="browser-class-head">
+      <Button size="large" variant="light" on:click={selectAllInstances}>Select all</Button>
+      <Button size="large" variant="light" on:click={clearSelection}>Clear all selections</Button>
+      <Button size="large" type="danger" variant="light" on:click={deleteSelectedInstances}>Delete all selections</Button>
+      {#if $selected.length >= 0}
+        <h3 style="text-align:center">Selected Datapoints</h3>
+        <p style="text-align:center">Scroll through points you have selected.</p>
+        <p style="text-align:center">Current label: {currentSelectedLabel}</p>
+        <img
+          src={currentSelectedImg}
+          alt="thumbnail"
+          class="m-1"
+          in:scale
+          out:scale
+        />
+        <Button size="small" variant="light" on:click={() => prevCard()}>
+          Previous
+        </Button>
+
+        <input type="text" placeholder="New label" bind:value={newLabel} />
+        <Button size="small" variant = "outline" on:click={() => relabelOneInstance(currentSelectedId, newLabel)}>Relabel</Button>
+        <Button size="small" type="danger" variant = "outline" on:click={() => remove(currentSelectedId)}>Delete</Button>
+        <Button size="small" variant="light" on:click={() => nextCard()}>
+          Next
+        </Button>
+      {/if}
+    </div>
 
     <div class="flex flex-wrap" on:click={() => selectInstance()}>
       {#each Object.entries(classes) as [label, { loaded, total, instances }]}
@@ -322,27 +385,12 @@
           <div class="w-full">
             <div class="browser-class-header">
               <span class="browser-class-title">{label}</span>
-              <button on:click={show}>Show/Hide</button>
-              <PopMenu
-                actions={[
-                  { code: 'edit', text: 'Edit class label' },
-                  { code: 'delete', text: 'Delete class' },
-                ].concat(
-                  $selected.length > 0
-                    ? [
-                        {
-                          code: 'deleteInstances',
-                          text: `Delete selected instance${$selected.length > 1 ? 's' : ''}`,
-                        },
-                        {
-                          code: 'relabelInstances',
-                          text: `Relabel selected instance${$selected.length > 1 ? 's' : ''}`,
-                        },
-                      ]
-                    : [],
-                )}
-                on:select={(e) => onClassAction(label, e.detail)}
-              />
+              <div style="margin: 0.5rem"><Button  size="small" variant="outline" on:click={() => onClassAction(label, "edit")}>
+            Edit Name
+          </Button>
+          <Button size="small" type="danger" variant="outline" on:click={() => onClassAction(label, "delete")}>
+            X
+          </Button></div>
             </div>
             <div class="browser-class-body">
               {#each instances as { id, thumbnail } (id)}
@@ -357,6 +405,12 @@
                   on:click|stopPropagation={() => selectInstance(id)}
                   on:mouseover|stopPropagation={() => selectInstance(id, true)}
                 />
+                <span style="top: -50px" on:pointerdown={e => e.stopPropagation()}
+                  on:click={() => remove(id)}
+                  class="remove"
+                  >
+                  ✕
+                </span>
               {/each}
             </div>
           </div>
@@ -367,30 +421,8 @@
               </Button>
             {/if}
           </div>
+          
         </div>
-      {/each}
-    </div>
-    <div class="browser-class-head">
-      {#each Object.entries(classes) as [label, { loaded, total, instances }]}
-        {#each instances as { id, thumbnail } (id)}
-          {#if $selected.length >= 0 && id == $selected[currentSelectedInd]}
-            <Button size="small" variant="light" on:click={() => prevCard()}>
-              Previous
-            </Button>
-            <img
-              src={thumbnail}
-              alt="thumbnail"
-              class="m-1"
-              in:scale
-              out:scale
-            />
-            <Button size="small" variant="light" on:click={() => nextCard()}>
-              Next
-            </Button>
-            <input type="text" on:input={(e) => relabelOneInstance(id, e.target.value)}/>
-          {/if}
-
-        {/each}
       {/each}
     </div>
   {/if}
@@ -462,14 +494,18 @@
 
   .browser-class-body {
     align-items: center;
+    display: block;
   }
 
   .browser-class-head {
-    align-items: center;
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+    padding: 1.0rem 1.0rem;
   }
 
   .browser-class-body img {
-    width: 60px;
+    width: 50px;
     box-sizing: content-box;
   }
   .browser-class-head img {
@@ -479,6 +515,23 @@
     display: block;
     margin-left: auto;
     margin-right: auto;
+    border-color: rgb(74 160 44/var(--tw-border-opacity));
+    border-radius: 0.5rem;
+    border-style: solid;
+  }
+
+  .square {
+    height: 200px;
+    width: 200px;
+    border-color: rgb(74 160 44/var(--tw-border-opacity));
+    border-radius: 0.5rem;
+    border-style: solid;
+  }
+
+  .browser-class-body .remove { 
+    cursor: pointer;
+    position: relative;
+    user-select: none;
   }
 
   .browser-class-body img.selected {

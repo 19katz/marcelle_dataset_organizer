@@ -11,7 +11,7 @@ interface DatasetBrowserOptions {
 }
 
 export class DataQueryTable extends Component {
-  title = 'dataset query table';
+  title = 'Dataset Organizer';
   
   #dataset: Dataset<DBInstance>;
   $selected: Stream<ObjectId[]> = new Stream([], true);
@@ -21,7 +21,7 @@ export class DataQueryTable extends Component {
   
   constructor(
 	dataset: Dataset<DBInstance>,
-	{ batchSize = 5 }: Partial<DatasetBrowserOptions> = {},
+	{ batchSize = 8 }: Partial<DatasetBrowserOptions> = {},
   ) {
 	  super();
       this.#dataset = dataset;
